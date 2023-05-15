@@ -44,10 +44,10 @@ aws_execute() {
 }
 
 aws_obtain_profile() {
-  if [[ ! -z "${AWS_PROFILE}" ]] && [ $(grep -c ^\\[${AWS_PROFILE}\\] $AWS_CRED_FILE_LOCATION) -lt 1 ]; then
-    echo "${COLOR_YELLOW}Profile \"${AWS_PROFILE}\" not found...${COLOR_NC}"
-    unset AWS_PROFILE
-  fi
+  # if [[ ! -z "${AWS_PROFILE}" ]] && [ $(grep -c ^\\[${AWS_PROFILE}\\] $AWS_CRED_FILE_LOCATION) -lt 1 ]; then
+  #   echo "${COLOR_YELLOW}Profile \"${AWS_PROFILE}\" not found...${COLOR_NC}"
+  #   unset AWS_PROFILE
+  # fi
   if [[ -z "${AWS_PROFILE}" ]]; then
     while true; do
       read -p "Which AWS profile would you like to use? (type the full name from the ~/.aws/credentials file): " AWS_PROFILE
@@ -82,17 +82,19 @@ aws_obtain_region() {
 }
 
 aws_obtain_key_pair() {
-  if [[ -z "${AWS_KEY_PAIR_NAME}" ]]; then
-    while true; do
-      read -p "Which AWS key pair would you like to use when creating the instance?: " AWS_KEY_PAIR_NAME
-      case "${AWS_KEY_PAIR_NAME}" in
-        "" ) echo "${COLOR_YELLOW}Please type the name of the key pair to use...${COLOR_NC}";;
-        * ) break;;
-      esac
-      echo ""
-    done
+  if [[ -z "${AWS_KEY_PATH}" ]]; then
+    if [[ -z "${AWS_KEY_PAIR_NAME}" ]]; then
+      while true; do
+        read -p "Which AWS key pair would you like to use when creating the instance?: " AWS_KEY_PAIR_NAME
+        case "${AWS_KEY_PAIR_NAME}" in
+          "" ) echo "${COLOR_YELLOW}Please type the name of the key pair to use...${COLOR_NC}";;
+          * ) break;;
+        esac
+        echo ""
+      done
+    fi
+    AWS_KEY_PATH="${AWS_KEY_PATH:-"${HOME}/.ssh/${AWS_KEY_PAIR_NAME}.pem"}"
   fi
-  AWS_KEY_PATH="${AWS_KEY_PATH:-"${HOME}/.ssh/${AWS_KEY_PAIR_NAME}.pem"}"
   if [[ ! -e "${AWS_KEY_PATH}" ]]; then
     error "Unable to find ${AWS_KEY_PATH} (You can change the location of the ssh key by setting the AWS_KEY_PATH env variable)"
     exit 10

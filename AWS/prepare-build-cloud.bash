@@ -31,7 +31,7 @@ echo "${COLOR_CYAN}==============================================${COLOR_NC}"
 # Ensure aws cli is installed
 [[ -z "$(command -v aws)" ]] && error "aws command not found; https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html${COLOR_NC}"
 if $AWS_USE_PROFILE; then
-  [[ ! -e "${AWS_CRED_FILE_LOCATION}" ]] && error "No credentials file found in ${AWS_CRED_FILE_LOCATION}..."
+  # [[ ! -e "${AWS_CRED_FILE_LOCATION}" ]] && error "No credentials file found in ${AWS_CRED_FILE_LOCATION}..."
   # Ensure --profile is set for cli
   aws_obtain_profile
 fi
