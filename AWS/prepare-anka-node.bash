@@ -34,9 +34,10 @@ cleanup() {
   # [[ "${DEDICATED_HOST_ID}" != null ]] && aws_execute "ec2 release-hosts --host-ids \"${DEDICATED_HOST_ID}\""
 
 }
-
-echo "${COLOR_CYAN}========================================${COLOR_NC}"
-echo "${COLOR_CYAN}]] Creating and setting up Anka Nodes [[${COLOR_NC}"
+if [[ "$1" != "--delete" ]]; then
+  echo "${COLOR_CYAN}========================================${COLOR_NC}"
+  echo "${COLOR_CYAN}]] Creating and setting up Anka Nodes [[${COLOR_NC}"
+fi
 echo "${COLOR_CYAN}========================================${COLOR_NC}"
 
 [[ "$(uname)" != "Darwin" ]] && echo "${COLOR_YELLOW}WARNING: We cannot guarantee this script with function on modern non-Darwin/MacOS shells (bash or zsh)${COLOR_NC}" && sleep 2
@@ -50,8 +51,10 @@ fi
 # Ensure region is set for cli
 aws_obtain_region
 # Ensure the key pair for instance creation is set
-aws_obtain_key_pair
-echo "] AWS User: ${COLOR_GREEN}$(aws_execute -s -r "iam get-user | jq -r '.User.UserName, \"|\", .User.UserId' | xargs")${COLOR_NC}";
+if [[ "$1" != "--delete" ]]; then
+  aws_obtain_key_pair
+  echo "] AWS User: ${COLOR_GREEN}$(aws_execute -s -r "iam get-user | jq -r '.User.UserName, \"|\", .User.UserId' | xargs")${COLOR_NC}";
+fi
 echo "${COLOR_CYAN}========================================${COLOR_NC}"
 
 # Collect all existing ids and instances
@@ -61,19 +64,7 @@ DEDICATED_HOST_STATE="$(echo "${DEDICATED_HOST}" | jq -r '.Hosts[0].State')"
 SECURITY_GROUP="$(aws_execute -r -s "ec2 describe-security-groups --filter \"Name=tag:purpose,Values=${AWS_NONUNIQUE_LABEL}\"")"
 SECURITY_GROUP_ID="${SECURITY_GROUP_ID:-"$(echo "${SECURITY_GROUP}" | jq -r '.SecurityGroups[0].GroupId')"}"
 
-# Create security group
-if [[ "${SECURITY_GROUP_ID}" == null ]]; then
-  SECURITY_GROUP=$(aws_execute -r "ec2 create-security-group \
-    --description \"$AWS_NONUNIQUE_LABEL\" \
-    --group-name \"$AWS_NONUNIQUE_LABEL\" \
-    --tag-specifications \"ResourceType=security-group,Tags=[{Key=Name,Value="$AWS_NONUNIQUE_LABEL"},{Key=purpose,Value=${AWS_NONUNIQUE_LABEL}}]\"")
-  SECURITY_GROUP_ID="$(echo "${SECURITY_GROUP}" | jq -r '.GroupId')"
-  echo " - Created Security Group: ${COLOR_GREEN}${SECURITY_GROUP_ID}${COLOR_NC}"
-else
-  echo " - Using existing Security Group: ${COLOR_GREEN}${SECURITY_GROUP_ID} | ${AWS_BUILD_CLOUD_UNIQUE_LABEL}${COLOR_NC}"
-fi
-
-if ${CONTROLLER_ENABLED:-true}; then
+if [[ "$1" != "--delete" ]] && ${CONTROLLER_ENABLED:-true}; then
   obtain_anka_license
   [[ "${SECURITY_GROUP_ID}" == null ]] && error "Unable to find Security Group... Please run the prepare-build-cloud.bash script first OR set SECURITY_GROUP_ID before execution..."
   CONTROLLER_ADDRESSES="$(aws_execute -r -s "ec2 describe-addresses --filter \"Name=tag:purpose,Values=${AWS_BUILD_CLOUD_UNIQUE_LABEL}\"")"
@@ -89,6 +80,18 @@ if [[ "${INSTANCE_ID}" != 'null' ]]; then INSTANCE_IP="$(aws_execute -r -s "ec2 
 if [[ "$1" == "--delete" ]]; then
   cleanup
   exit
+fi
+
+# Create security group
+if [[ "${SECURITY_GROUP_ID}" == null ]]; then
+  SECURITY_GROUP=$(aws_execute -r "ec2 create-security-group \
+    --description \"$AWS_NONUNIQUE_LABEL\" \
+    --group-name \"$AWS_NONUNIQUE_LABEL\" \
+    --tag-specifications \"ResourceType=security-group,Tags=[{Key=Name,Value="$AWS_NONUNIQUE_LABEL"},{Key=purpose,Value=${AWS_NONUNIQUE_LABEL}}]\"")
+  SECURITY_GROUP_ID="$(echo "${SECURITY_GROUP}" | jq -r '.GroupId')"
+  echo " - Created Security Group: ${COLOR_GREEN}${SECURITY_GROUP_ID}${COLOR_NC}"
+else
+  echo " - Using existing Security Group: ${COLOR_GREEN}${SECURITY_GROUP_ID} | ${AWS_BUILD_CLOUD_UNIQUE_LABEL}${COLOR_NC}"
 fi
 
 # Add IP to security group
@@ -119,23 +122,23 @@ else
 fi
 
 # Create EC2 instance for Anka Node
+if [[ "${INSTANCE_ID}" == null ]]; then
 while [[ "$(aws_execute -r -s "ec2 describe-hosts --filter \"Name=tag:purpose,Values=${AWS_NONUNIQUE_LABEL}\"" | jq -r '.Hosts[0].State')" != 'available' ]]; do
   echo "Dedicated Host still not available (this can take a while)..."
   sleep 60
 done
-# Fix An error occurred (InvalidHostState) when calling the RunInstances operation: Dedicated host h-XXX is in an invalid state for launching instances.
-sleep 120
-while [[ "$(aws_execute -r -s "ec2 describe-hosts --host-ids \"${DEDICATED_HOST_ID}\"" | jq -r '.Hosts[0].AvailableCapacity.AvailableInstanceCapacity[0].AvailableCapacity')" != "1" ]]; do
-  echo "Dedicated Host capacity still not available (this can take a while)..."
-  sleep 60
-done
-if [[ "${INSTANCE_ID}" == null ]]; then
+  # Fix An error occurred (InvalidHostState) when calling the RunInstances operation: Dedicated host h-XXX is in an invalid state for launching instances.
+  sleep 120
+  while [[ "$(aws_execute -r -s "ec2 describe-hosts --host-ids \"${DEDICATED_HOST_ID}\"" | jq -r '.Hosts[0].AvailableCapacity.AvailableInstanceCapacity[0].AvailableCapacity')" != "1" ]]; do
+    echo "Dedicated Host capacity still not available (this can take a while)..."
+    sleep 60
+  done
   ## Get latest AMI ID (regardless of region)
   echo "${COLOR_CYAN}]] Creating Instance${COLOR_NC}"
-  AMI_ID="$(aws_execute -r -s "ec2 describe-images \
+  AMI_ID="${AMI_ID:-$(aws_execute -r -s "ec2 describe-images \
     --filters \"Name=name,Values=anka-build-*\" \"Name=state,Values=available\" \"Name=owner-id,Values=930457884660\" \
     --query \"Images[?contains(Name,\\\`marketplace\\\`) == \\\`false\\\`] ${EXTRA_CONTAINS} | sort_by([*], &CreationDate)[-1].[ImageId]\" \
-    --output \"text\"")"
+    --output \"text\"")}"
   # We don't use ANKA_JOIN_ARGS here so we can set the instance IP
   INSTANCE=$(aws_execute -r "ec2 run-instances \
     --image-id \"${AMI_ID}\" \
@@ -220,4 +223,3 @@ fi
 echo "You can now access your Anka Node with:"
 echo "${COLOR_GREEN}   ssh -i \"${AWS_KEY_PATH}\" \"ec2-user@${INSTANCE_IP}\"${COLOR_NC}"
 echo ""
-echo "IMPORTANT: Our AMIs attempt to do the majority of preparation for you, however, there are several steps you need to perform once the instance is started. Please see our documentation: https://docs.veertu.com/anka/intel/getting-started/aws-ec2-mac/#manual-preparation"
